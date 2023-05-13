@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { EditorView, EditorViewConfig, keymap } from "@codemirror/view";
+import { EditorView, EditorViewConfig, keymap, gutter } from "@codemirror/view";
 import { minimalSetup } from "codemirror";
 import { indentWithTab } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
@@ -7,6 +7,7 @@ import { syntaxTree } from "@codemirror/language";
 import { EditorState, Transaction } from "@codemirror/state";
 import ReactJson from "react-json-view";
 import { useStaticCallback } from "./hooks";
+import { functionButtonsGutter } from "./plugins/gutter";
 
 const initialSource = `- Foo
   - Home
@@ -69,6 +70,7 @@ function App() {
       extensions: [
         minimalSetup,
         EditorView.lineWrapping,
+        functionButtonsGutter,
         markdown(),
         keymap.of([indentWithTab]),
       ],
