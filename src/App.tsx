@@ -5,11 +5,17 @@ import { indentWithTab } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
 import { syntaxTree } from "@codemirror/language";
 import { EditorState } from "@codemirror/state";
+import ReactJson from "react-json-view";
 
 const initialSource = `- Foo
-  - bar
-  - baz
-    - more
+  - Home
+    - latLng: 50.775555, 6.083611
+  - Bob   
+    - age: 30
+    - pet:
+      - name: Snowball
+      - type: cat
+      - age: 2
   - lol
 `;
 
@@ -55,9 +61,7 @@ function App() {
 
       <div className="w-full bg-gray-200 p-4 rounded-xl">
         {parsedNodes.map((node, index) => (
-          <pre key={index}>
-            {JSON.stringify(removeCircularReferences(node), null, 2)}
-          </pre>
+          <ReactJson src={node} key={index} collapsed={true} />
         ))}
       </div>
     </div>
@@ -68,7 +72,9 @@ export default App;
 
 interface Node {
   parent: Node;
-  value: string;
+  value?: string;
+  key?: string;
+  props: { [key: string]: Node };
   children: Node[];
 }
 
@@ -85,17 +91,26 @@ function parseNodes(state: EditorState): Node[] {
           parents.unshift(currentNode);
         }
 
-        const value = state.sliceDoc(node.from + 2, node.to).split("\n")[0];
+        const bulletSource = state
+          .sliceDoc(node.from + 2, node.to)
+          .split("\n")[0];
 
         const parent = parents[0];
 
+        const { key, value } = parseBullet(bulletSource);
+
         currentNode = {
-          parent,
+          key,
           value,
+          parent,
           children: [],
+          props: {},
         };
 
         if (parent) {
+          if (key !== undefined && value !== undefined && !parent.props[key]) {
+            parent.props[key] = currentNode;
+          }
           parent.children.push(currentNode);
         }
       }
@@ -119,20 +134,24 @@ function parseNodes(state: EditorState): Node[] {
   return results;
 }
 
-type NodeWithoutCircularReferences = Omit<Node, "parent" | "children"> & {
-  parent: string | undefined;
-  children: NodeWithoutCircularReferences[];
-};
+interface Bullet {
+  key?: string;
+  value?: string;
+}
 
-function removeCircularReferences(
-  node: Node,
-  deleteParent = true
-): NodeWithoutCircularReferences {
-  return {
-    ...node,
-    parent: node.parent && !deleteParent ? node.parent.value : undefined,
-    children: node.children.map((child) =>
-      removeCircularReferences(child, deleteParent)
-    ),
-  };
+const KEY_REGEX = /(^[^{]*?):/;
+
+function parseBullet(value: string): Bullet {
+  const match = value.match(KEY_REGEX);
+
+  if (match) {
+    const key = match[1];
+
+    return {
+      key: key.trim(),
+      value: value.slice(key.length + 1),
+    };
+  }
+
+  return { value };
 }
