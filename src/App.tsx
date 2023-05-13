@@ -1,13 +1,20 @@
 import { useEffect, useRef, useState } from "react";
-import { EditorView, EditorViewConfig, keymap, gutter } from "@codemirror/view";
+import { EditorView, EditorViewConfig, keymap } from "@codemirror/view";
 import { minimalSetup } from "codemirror";
 import { indentWithTab } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
-import { syntaxTree } from "@codemirror/language";
-import { EditorState, Transaction, SelectionRange } from "@codemirror/state";
+import { EditorState, SelectionRange, Transaction } from "@codemirror/state";
 import ReactJson from "react-json-view";
 import { useStaticCallback } from "./hooks";
 import { functionButtonsGutter } from "./plugins/gutter";
+import {
+  extractData,
+  getNodeAtRange,
+  nodesField,
+  parseNodes,
+  Node,
+  setNodes,
+} from "./plugins/parser";
 
 const initialSource = `- Foo
   - Home
@@ -29,19 +36,18 @@ function App() {
   const [focusedNode, setFocusedNode] = useState<Node>();
 
   const onChangeDoc = useStaticCallback((state: EditorState) => {
+    const currentEditorView = editorViewRef.current;
+    if (!currentEditorView) {
+      return;
+    }
+
     const nodes = parseNodes(state);
     nodes.forEach(extractData);
     setParsedNodes(nodes);
+    currentEditorView.dispatch({
+      effects: setNodes.of(nodes),
+    });
   });
-
-  // update selection if parsedNodes have changed
-  useEffect(() => {
-    const currentEditor = editorViewRef.current;
-
-    if (currentEditor) {
-      onUpdateSelection(currentEditor.state);
-    }
-  }, [parsedNodes, editorViewRef]);
 
   const onUpdateSelection = useStaticCallback((state: EditorState) => {
     const selection = state.selection;
@@ -52,7 +58,7 @@ function App() {
     }
 
     const range: SelectionRange = selection.ranges[0];
-    const node = getNodeAtRange(parsedNodes, range);
+    const node = getNodeAtRange(state.field(nodesField), range.from, range.to);
     setFocusedNode(node);
   });
 
@@ -67,6 +73,7 @@ function App() {
         minimalSetup,
         EditorView.lineWrapping,
         functionButtonsGutter,
+        nodesField,
         markdown(),
         keymap.of([indentWithTab]),
       ],
@@ -75,8 +82,10 @@ function App() {
 
         if (transaction.docChanged) {
           onChangeDoc(view.state);
-          // onUpdateSelection is called implicitly when the parsed nodes change
-        } else if (transaction.selection) {
+        } else if (
+          transaction.selection ||
+          transaction.effects.some((effect) => effect.is(setNodes))
+        ) {
           onUpdateSelection(view.state);
         }
       },
@@ -88,7 +97,7 @@ function App() {
     return () => {
       view.destroy();
     };
-  }, []); // don't need to pass onUpdateSelection and onChangeDoc because they are static callbacks
+  }, []);
 
   return (
     <div className="flex p-4 gap-2 h-screen">
@@ -111,188 +120,3 @@ function App() {
 }
 
 export default App;
-
-interface Node {
-  from: number;
-  to: number;
-  parent?: Node;
-  value?: string;
-  key?: string;
-  props: { [key: string]: Node };
-  data: {
-    latLng?: LatLng;
-    number?: number;
-    geoPoints?: GeoPoint[];
-  };
-  children: Node[];
-}
-
-// todo: doesn't work if there are multiple separate lists in the document
-function parseNodes(state: EditorState): Node[] {
-  const parents: Node[] = [];
-  let currentNode: Node | undefined = undefined;
-
-  const results: Node[] = [];
-
-  syntaxTree(state).iterate({
-    enter(node) {
-      // console.log("enter", node.name, state.doc.lineAt(node.from));
-
-      switch (node.name) {
-        case "BulletList":
-          if (parents.length === 0) {
-            parents.unshift({
-              from: node.from,
-              to: node.to,
-              children: [],
-              data: {},
-              props: {},
-            });
-          }
-          break;
-
-        case "ListItem": {
-          if (currentNode) {
-            parents.unshift(currentNode);
-          }
-
-          const bulletSource = state
-            .sliceDoc(node.from + 2, node.to)
-            .split("\n")[0];
-
-          const parent = parents[0];
-
-          const { key, value } = parseBullet(bulletSource);
-
-          currentNode = {
-            from: state.doc.lineAt(node.from).from, // use the start position of the line
-            to: node.to,
-            key,
-            value,
-            parent,
-            children: [],
-            data: {},
-            props: {},
-          };
-
-          if (parent) {
-            if (
-              key !== undefined &&
-              value !== undefined &&
-              !parent.props[key]
-            ) {
-              parent.props[key] = currentNode;
-            }
-            parent.children.push(currentNode);
-          }
-        }
-      }
-    },
-
-    leave(node) {
-      // console.log("leave", node.name, state.doc.lineAt(node.from));
-
-      switch (node.name) {
-        case "ListItem":
-          currentNode = undefined;
-          break;
-
-        case "BulletList":
-          currentNode = parents.shift();
-
-          if (parents.length === 0 && currentNode) {
-            results.push(currentNode);
-          }
-      }
-    },
-  });
-
-  if (parents.length === 1) {
-    results.push(parents[0]);
-  }
-
-  return results;
-}
-
-function getNodeAtRange(
-  nodes: Node[],
-  range: SelectionRange
-): Node | undefined {
-  for (const node of nodes) {
-    if (range.from >= node.from && range.to <= node.to) {
-      const childNode = getNodeAtRange(node.children, range);
-      return childNode ? childNode : node;
-    }
-  }
-}
-
-const LAT_LNG_REGEX = /^\s*(-?\d+\.\d+?),\s*(-?\d+\.\d+?)\s*$/;
-const NUMBER_REGEX = /^\s*(-?\d+(\.\d+)?)\s*$/;
-
-interface LatLng {
-  lat: number;
-  lng: number;
-}
-
-interface GeoPoint {
-  node: Node;
-  position: LatLng;
-}
-
-function extractData(node: Node) {
-  if (node.value) {
-    const latLngMatch = node.value.match(LAT_LNG_REGEX);
-    if (latLngMatch) {
-      const [lat, lng] = latLngMatch;
-      node.data.latLng = { lat: parseFloat(lat), lng: parseFloat(lng) };
-    }
-
-    const numberMatch = node.value.match(NUMBER_REGEX);
-    if (numberMatch) {
-      const number = numberMatch[1];
-      node.data.number = parseFloat(number);
-    }
-  }
-
-  node.children.forEach(extractData);
-
-  const geoPoints: GeoPoint[] = [];
-
-  for (const child of node.children) {
-    if (child.data.latLng) {
-      geoPoints.push({ node, position: child.data.latLng });
-    }
-  }
-
-  node.children.forEach((child) => {
-    if (child.data.geoPoints) {
-      geoPoints.push(...child.data.geoPoints);
-    }
-  });
-
-  if (geoPoints.length > 0) {
-    node.data.geoPoints = geoPoints;
-  }
-}
-
-interface Bullet {
-  key?: string;
-  value?: string;
-}
-
-const KEY_REGEX = /(^[^{]*?):/;
-
-function parseBullet(value: string): Bullet {
-  const match = value.match(KEY_REGEX);
-
-  if (match) {
-    const key = match[1];
-
-    return {
-      key: key.trim(),
-      value: value.slice(key.length + 1),
-    };
-  }
-
-  return { value };
-}
