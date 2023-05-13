@@ -25,6 +25,12 @@ function App() {
 
   const [parsedNodes, setParsedNodes] = useState<Node[]>([]);
 
+  const onChangeEditorState = (state: EditorState) => {
+    const nodes = parseNodes(state);
+    nodes.forEach(extractData);
+    setParsedNodes(nodes);
+  };
+
   useEffect(() => {
     if (!containerRef.current) {
       return;
@@ -42,13 +48,13 @@ function App() {
       dispatch(transaction) {
         view.update([transaction]);
         if (transaction.docChanged) {
-          setParsedNodes(parseNodes(view.state));
+          onChangeEditorState(view.state);
         }
       },
       parent: containerRef.current,
     } as EditorViewConfig));
 
-    setParsedNodes(parseNodes(view.state));
+    onChangeEditorState(view.state);
 
     return () => {
       view.destroy();
@@ -75,6 +81,11 @@ interface Node {
   value?: string;
   key?: string;
   props: { [key: string]: Node };
+  data: {
+    latLng?: LatLng;
+    number?: number;
+    geoPoints?: GeoPoint[];
+  };
   children: Node[];
 }
 
@@ -104,6 +115,7 @@ function parseNodes(state: EditorState): Node[] {
           value,
           parent,
           children: [],
+          data: {},
           props: {},
         };
 
@@ -132,6 +144,55 @@ function parseNodes(state: EditorState): Node[] {
   });
 
   return results;
+}
+
+const LAT_LNG_REGEX = /^\s*(-?\d+\.\d+?),\s*(-?\d+\.\d+?)\s*$/;
+const NUMBER_REGEX = /^\s*(-?\d+(\.\d+)?)\s*$/;
+
+interface LatLng {
+  lat: number;
+  lng: number;
+}
+
+interface GeoPoint {
+  node: Node;
+  position: LatLng;
+}
+
+function extractData(node: Node) {
+  if (node.value) {
+    const latLngMatch = node.value.match(LAT_LNG_REGEX);
+    if (latLngMatch) {
+      const [lat, lng] = latLngMatch;
+      node.data.latLng = { lat: parseFloat(lat), lng: parseFloat(lng) };
+    }
+
+    const numberMatch = node.value.match(NUMBER_REGEX);
+    if (numberMatch) {
+      const number = numberMatch[1];
+      node.data.number = parseFloat(number);
+    }
+  }
+
+  node.children.forEach(extractData);
+
+  const geoPoints: GeoPoint[] = [];
+
+  for (const child of node.children) {
+    if (child.data.latLng) {
+      geoPoints.push({ node, position: child.data.latLng });
+    }
+  }
+
+  node.children.forEach((child) => {
+    if (child.data.geoPoints) {
+      geoPoints.push(...child.data.geoPoints);
+    }
+  });
+
+  if (geoPoints.length > 0) {
+    node.data.geoPoints = geoPoints;
+  }
 }
 
 interface Bullet {
