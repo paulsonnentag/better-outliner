@@ -138,7 +138,7 @@ function parseNodes(state: EditorState): Node[] {
 
   syntaxTree(state).iterate({
     enter(node) {
-      console.log("enter", node.name, state.doc.lineAt(node.from));
+      // console.log("enter", node.name, state.doc.lineAt(node.from));
 
       switch (node.name) {
         case "BulletList":
@@ -192,7 +192,7 @@ function parseNodes(state: EditorState): Node[] {
     },
 
     leave(node) {
-      console.log("leave", node.name, state.doc.lineAt(node.from));
+      // console.log("leave", node.name, state.doc.lineAt(node.from));
 
       switch (node.name) {
         case "ListItem":
@@ -204,8 +204,6 @@ function parseNodes(state: EditorState): Node[] {
 
           if (parents.length === 0 && currentNode) {
             results.push(currentNode);
-          } else {
-            console.log("nothing", parents);
           }
       }
     },
