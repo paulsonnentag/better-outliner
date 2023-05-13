@@ -29,7 +29,10 @@ export const functionButtonsGutter = gutter({
     return new (class extends GutterMarker {
       toDOM(view) {
         if ((nodeAtLine as Node).data.geoPoints) {
-          return document.createTextNode("🗺️");
+          const node = document.createElement("div");
+          node.innerText = "🗺️";
+          node.className = "cursor-pointer";
+          return node;
         }
 
         return document.createTextNode("");
@@ -44,5 +47,29 @@ export const functionButtonsGutter = gutter({
         transaction.selection ||
         transaction.effects.some((effect) => effect.is(setNodes))
     );
+  },
+
+  domEventHandlers: {
+    mousedown: (view, line) => {
+      console.log("click");
+
+      const lineText = view.state.sliceDoc(line.from, line.to);
+      const indentation = lineText.slice(
+        0,
+        lineText.length - lineText.trimStart().length
+      );
+
+      view.dispatch(
+        view.state.update({
+          changes: {
+            from: line.to,
+            to: line.to,
+            insert: `\n${indentation}  - {map}`,
+          },
+        })
+      );
+
+      return true;
+    },
   },
 });
