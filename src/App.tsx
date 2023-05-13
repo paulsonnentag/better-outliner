@@ -15,8 +15,10 @@ import {
   Node,
   setNodes,
 } from "./plugins/parser";
+import { mapTokenPlugin } from "./plugins/map";
 
 const initialSource = `- Foo
+  - {map}
   - Home
     - latLng: 50.775555, 6.083611
   - Bob   
@@ -75,6 +77,7 @@ function App() {
         functionButtonsGutter,
         nodesField,
         markdown(),
+        mapTokenPlugin,
         keymap.of([indentWithTab]),
       ],
       dispatch(transaction: Transaction) {
