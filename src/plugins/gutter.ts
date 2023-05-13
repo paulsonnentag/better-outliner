@@ -27,4 +27,6 @@ export const functionButtonsGutter = gutter({
       (transaction) => transaction.docChanged || transaction.selection
     );
   },
+
+  initialSpacer: () => emptyMarker,
 });

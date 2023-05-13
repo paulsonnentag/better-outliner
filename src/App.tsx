@@ -4,7 +4,7 @@ import { minimalSetup } from "codemirror";
 import { indentWithTab } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
 import { syntaxTree } from "@codemirror/language";
-import { EditorState, Transaction } from "@codemirror/state";
+import { EditorState, Transaction, SelectionRange } from "@codemirror/state";
 import ReactJson from "react-json-view";
 import { useStaticCallback } from "./hooks";
 import { functionButtonsGutter } from "./plugins/gutter";
@@ -46,17 +46,13 @@ function App() {
   const onUpdateSelection = useStaticCallback((state: EditorState) => {
     const selection = state.selection;
 
-    // todo: we should handle selection ranges, but then things become a bit more complicated, so treat this case as if nothing was selected for now
-    if (
-      selection.ranges.length !== 1 ||
-      selection.ranges[0].from !== selection.ranges[0].to
-    ) {
+    if (selection.ranges.length !== 1) {
       setFocusedNode(undefined);
       return;
     }
 
-    const position = selection.ranges[0].from;
-    const node = getNodeAtPosition(parsedNodes, position);
+    const range: SelectionRange = selection.ranges[0];
+    const node = getNodeAtRange(parsedNodes, range);
     setFocusedNode(node);
   });
 
@@ -218,10 +214,13 @@ function parseNodes(state: EditorState): Node[] {
   return results;
 }
 
-function getNodeAtPosition(nodes: Node[], position: number): Node | undefined {
+function getNodeAtRange(
+  nodes: Node[],
+  range: SelectionRange
+): Node | undefined {
   for (const node of nodes) {
-    if (position >= node.from && position <= node.to) {
-      const childNode = getNodeAtPosition(node.children, position);
+    if (range.from >= node.from && range.to <= node.to) {
+      const childNode = getNodeAtRange(node.children, range);
       return childNode ? childNode : node;
     }
   }
