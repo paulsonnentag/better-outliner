@@ -1,3 +1,6 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* hide additional info on bottom of google maps */
+.gm-style-cc { display:none; }
