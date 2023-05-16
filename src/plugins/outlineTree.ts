@@ -1,14 +1,13 @@
 import { EditorState, StateEffect, StateField } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
-
-export const setNodes = StateEffect.define<Node[]>();
-export const nodesField = StateField.define<Node[]>({
+export const setOutlineTree = StateEffect.define<outlineTree[]>();
+export const outlineTreeField = StateField.define<outlineTree[]>({
   create() {
     return [];
   },
   update(nodes, tr) {
     for (let e of tr.effects) {
-      if (e.is(setNodes)) {
+      if (e.is(setOutlineTree)) {
         return e.value;
       }
     }
@@ -17,33 +16,46 @@ export const nodesField = StateField.define<Node[]>({
   },
 });
 
-export interface Node {
+interface MapToken {
   from: number;
   to: number;
-  parent?: Node;
+}
+
+export interface outlineTree {
+  from: number;
+  to: number;
+  parent?: outlineTree;
   value?: string;
   key?: string;
-  props: { [key: string]: Node };
+  mapTokens: MapToken[]; // todo: generalize
+  props: { [key: string]: outlineTree };
   data: {
     latLng?: LatLng;
     number?: number;
     geoPoints?: GeoPoint[];
   };
-  children: Node[];
+  children: outlineTree[];
 }
 
 // todo: doesn't work if there are multiple separate lists in the document
-export function parseNodes(state: EditorState): Node[] {
-  const parents: Node[] = [];
-  let currentNode: Node | undefined = undefined;
+export function parseOutlineTree(state: EditorState): outlineTree[] {
+  const parents: outlineTree[] = [];
+  let currentNode: outlineTree | undefined = undefined;
 
-  const results: Node[] = [];
+  const results: outlineTree[] = [];
 
   syntaxTree(state).iterate({
     enter(node) {
       // console.log("enter", node.name, state.doc.lineAt(node.from));
 
       switch (node.name) {
+        case "Map":
+          if (currentNode) {
+            currentNode.mapTokens.push({ from: node.from, to: node.to });
+          }
+
+          break;
+
         case "BulletList":
           if (parents.length === 0) {
             parents.unshift({
@@ -52,6 +64,7 @@ export function parseNodes(state: EditorState): Node[] {
               children: [],
               data: {},
               props: {},
+              mapTokens: [],
             });
           }
           break;
@@ -78,6 +91,7 @@ export function parseNodes(state: EditorState): Node[] {
             children: [],
             data: {},
             props: {},
+            mapTokens: [],
           };
 
           if (parent) {
@@ -120,10 +134,10 @@ export function parseNodes(state: EditorState): Node[] {
 }
 
 export function getNodeAtRange(
-  nodes: Node[],
+  nodes: outlineTree[],
   from: number,
   to: number
-): Node | undefined {
+): outlineTree | undefined {
   for (const node of nodes) {
     if (from >= node.from && to <= node.to) {
       const childNode = getNodeAtRange(node.children, from, to);
@@ -140,17 +154,20 @@ interface LatLng {
   lng: number;
 }
 
-interface GeoPoint {
-  node: Node;
+export interface GeoPoint {
+  node: outlineTree;
   position: LatLng;
 }
 
-export function extractData(node: Node) {
+export function extractData(node: outlineTree) {
   if (node.value) {
     const latLngMatch = node.value.match(LAT_LNG_REGEX);
     if (latLngMatch) {
-      const [lat, lng] = latLngMatch;
+      const lat = latLngMatch[1];
+      const lng = latLngMatch[2];
+
       node.data.latLng = { lat: parseFloat(lat), lng: parseFloat(lng) };
+      console.log(node.data.latLng);
     }
 
     const numberMatch = node.value.match(NUMBER_REGEX);

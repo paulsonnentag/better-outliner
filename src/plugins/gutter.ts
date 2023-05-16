@@ -1,5 +1,10 @@
 import { gutter, GutterMarker } from "@codemirror/view";
-import { getNodeAtRange, Node, nodesField, setNodes } from "./parser";
+import {
+  getNodeAtRange,
+  outlineTree,
+  outlineTreeField,
+  setOutlineTree,
+} from "./outlineTree";
 
 export const functionButtonsGutter = gutter({
   class: "w-[20px] px-1",
@@ -17,7 +22,7 @@ export const functionButtonsGutter = gutter({
     }
 
     const nodeAtLine = getNodeAtRange(
-      view.state.field(nodesField),
+      view.state.field(outlineTreeField),
       line.from,
       line.to
     );
@@ -28,7 +33,7 @@ export const functionButtonsGutter = gutter({
 
     return new (class extends GutterMarker {
       toDOM(view) {
-        if ((nodeAtLine as Node).data.geoPoints) {
+        if ((nodeAtLine as outlineTree).data.geoPoints) {
           const node = document.createElement("div");
           node.innerText = "🗺️";
           node.className = "cursor-pointer";
@@ -45,7 +50,7 @@ export const functionButtonsGutter = gutter({
       (transaction) =>
         transaction.docChanged ||
         transaction.selection ||
-        transaction.effects.some((effect) => effect.is(setNodes))
+        transaction.effects.some((effect) => effect.is(setOutlineTree))
     );
   },
 
