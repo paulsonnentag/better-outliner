@@ -1,7 +1,7 @@
 import { EditorState, StateEffect, StateField } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
-export const setOutlineTree = StateEffect.define<outlineTree[]>();
-export const outlineTreeField = StateField.define<outlineTree[]>({
+export const setOutlineTree = StateEffect.define<OutlineNode[]>();
+export const outlineTreeField = StateField.define<OutlineNode[]>({
   create() {
     return [];
   },
@@ -16,55 +16,35 @@ export const outlineTreeField = StateField.define<outlineTree[]>({
   },
 });
 
-interface MapToken {
+export interface OutlineNode {
   from: number;
   to: number;
-}
-
-export interface outlineTree {
-  from: number;
-  to: number;
-  parent?: outlineTree;
-  value?: string;
   key?: string;
-  mapTokens: MapToken[]; // todo: generalize
-  props: { [key: string]: outlineTree };
-  data: {
-    latLng?: LatLng;
-    number?: number;
-    geoPoints?: GeoPoint[];
-  };
-  children: outlineTree[];
+  value: string;
+  expressions: Expression[];
+  children: OutlineNode[];
 }
 
 // todo: doesn't work if there are multiple separate lists in the document
-export function parseOutlineTree(state: EditorState): outlineTree[] {
-  const parents: outlineTree[] = [];
-  let currentNode: outlineTree | undefined = undefined;
+export function parseOutlineTree(state: EditorState): OutlineNode[] {
+  const parents: OutlineNode[] = [];
+  let currentNode: OutlineNode | undefined = undefined;
 
-  const results: outlineTree[] = [];
+  const results: OutlineNode[] = [];
 
   syntaxTree(state).iterate({
     enter(node) {
       // console.log("enter", node.name, state.doc.lineAt(node.from));
 
       switch (node.name) {
-        case "Map":
-          if (currentNode) {
-            currentNode.mapTokens.push({ from: node.from, to: node.to });
-          }
-
-          break;
-
         case "BulletList":
           if (parents.length === 0) {
             parents.unshift({
+              value: "",
+              expressions: [],
               from: node.from,
               to: node.to,
               children: [],
-              data: {},
-              props: {},
-              mapTokens: [],
             });
           }
           break;
@@ -80,28 +60,21 @@ export function parseOutlineTree(state: EditorState): outlineTree[] {
 
           const parent = parents[0];
 
-          const { key, value } = parseBullet(bulletSource);
+          const { key, value, expressions } = parseBullet(
+            bulletSource,
+            node.from + 2
+          );
 
           currentNode = {
             from: state.doc.lineAt(node.from).from, // use the start position of the line
             to: node.to,
             key,
             value,
-            parent,
             children: [],
-            data: {},
-            props: {},
-            mapTokens: [],
+            expressions,
           };
 
           if (parent) {
-            if (
-              key !== undefined &&
-              value !== undefined &&
-              !parent.props[key]
-            ) {
-              parent.props[key] = currentNode;
-            }
             parent.children.push(currentNode);
           }
         }
@@ -134,10 +107,10 @@ export function parseOutlineTree(state: EditorState): outlineTree[] {
 }
 
 export function getNodeAtRange(
-  nodes: outlineTree[],
+  nodes: OutlineNode[],
   from: number,
   to: number
-): outlineTree | undefined {
+): OutlineNode | undefined {
   for (const node of nodes) {
     if (from >= node.from && to <= node.to) {
       const childNode = getNodeAtRange(node.children, from, to);
@@ -146,66 +119,21 @@ export function getNodeAtRange(
   }
 }
 
-const LAT_LNG_REGEX = /^\s*(-?\d+\.\d+?),\s*(-?\d+\.\d+?)\s*$/;
-const NUMBER_REGEX = /^\s*(-?\d+(\.\d+)?)\s*$/;
-
-interface LatLng {
-  lat: number;
-  lng: number;
-}
-
-export interface GeoPoint {
-  node: outlineTree;
-  position: LatLng;
-}
-
-export function extractData(node: outlineTree) {
-  if (node.value) {
-    const latLngMatch = node.value.match(LAT_LNG_REGEX);
-    if (latLngMatch) {
-      const lat = latLngMatch[1];
-      const lng = latLngMatch[2];
-
-      node.data.latLng = { lat: parseFloat(lat), lng: parseFloat(lng) };
-      console.log(node.data.latLng);
-    }
-
-    const numberMatch = node.value.match(NUMBER_REGEX);
-    if (numberMatch) {
-      const number = numberMatch[1];
-      node.data.number = parseFloat(number);
-    }
-  }
-
-  node.children.forEach(extractData);
-
-  const geoPoints: GeoPoint[] = [];
-
-  for (const child of node.children) {
-    if (child.data.latLng) {
-      geoPoints.push({ node, position: child.data.latLng });
-    }
-  }
-
-  node.children.forEach((child) => {
-    if (child.data.geoPoints) {
-      geoPoints.push(...child.data.geoPoints);
-    }
-  });
-
-  if (geoPoints.length > 0) {
-    node.data.geoPoints = geoPoints;
-  }
-}
-
 interface Bullet {
   key?: string;
-  value?: string;
+  value: string;
+  expressions: Expression[];
+}
+
+interface Expression {
+  from: number;
+  to: number;
+  source: string;
 }
 
 const KEY_REGEX = /(^[^{]*?):/;
 
-function parseBullet(value: string): Bullet {
+function parseBullet(value: string, offset: number): Bullet {
   const match = value.match(KEY_REGEX);
 
   if (match) {
@@ -213,9 +141,29 @@ function parseBullet(value: string): Bullet {
 
     return {
       key: key.trim(),
-      value: value.slice(key.length + 1),
+      value: value.slice(key.length + 1).trim(),
+      expressions: parseExpressions(value, key.length + 1 + offset),
     };
   }
 
-  return { value };
+  return {
+    value,
+    expressions: parseExpressions(value, offset),
+  };
+}
+
+function parseExpressions(value: string, offset: number = 0): Expression[] {
+  const expressions = [];
+
+  const EXPRESSION_REGEX = /{(?<source>[^}]+)}/g;
+
+  for (const match of value.matchAll(EXPRESSION_REGEX)) {
+    expressions.push({
+      from: (match as any).index + offset,
+      to: (match as any).index + match[0].length + offset,
+      source: (match as any).groups.source,
+    });
+  }
+
+  return expressions;
 }
