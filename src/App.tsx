@@ -1,8 +1,21 @@
 import { useEffect, useRef, useState } from "react";
-import { EditorView, EditorViewConfig, keymap } from "@codemirror/view";
+import {
+  EditorView,
+  EditorViewConfig,
+  keymap,
+  Decoration,
+  WidgetType,
+} from "@codemirror/view";
 import { minimalSetup } from "codemirror";
 import { indentWithTab } from "@codemirror/commands";
-import { EditorState, SelectionRange, Transaction } from "@codemirror/state";
+import {
+  EditorState,
+  SelectionRange,
+  Transaction,
+  StateField,
+  StateEffect,
+  Range,
+} from "@codemirror/state";
 import { useStaticCallback } from "./hooks";
 import {
   getNodeAtRange,
@@ -28,24 +41,90 @@ const initialSource = `- Formulas
   - {invalid}
 `;
 
+class ExpressionResultWidget extends WidgetType {
+  constructor(readonly value: string) {
+    super();
+  }
+
+  eq(other: ExpressionResultWidget) {
+    return other.value == this.value;
+  }
+
+  toDOM() {
+    let dom = document.createElement("span");
+    dom.setAttribute("aria-hidden", "true");
+    dom.className = "text-blue-500";
+    dom.innerText = ` = ${this.value}`;
+    return dom;
+  }
+}
+
+const setRootNodesEffect = StateEffect.define<OutlineNode[]>();
+const rootNodesField = StateField.define<OutlineNode[]>({
+  create() {
+    return [];
+  },
+  update(rootNodes: OutlineNode[], transaction) {
+    for (let e of transaction.effects) {
+      if (e.is(setRootNodesEffect)) {
+        return e.value;
+      }
+    }
+
+    return rootNodes;
+  },
+});
+
+const outlineNodeDecorations = EditorView.decorations.compute(
+  [rootNodesField],
+  (state) => {
+    const rootNodes = state.field(rootNodesField);
+
+    return Decoration.set(rootNodes.flatMap(getDecorationsOfNode));
+  }
+);
+
+function getDecorationsOfNode(node: OutlineNode): Range<Decoration>[] {
+  const decorations: Range<Decoration>[] = [];
+
+  for (const expression of node.expressions) {
+    if (expression.value) {
+      decorations.push(
+        Decoration.mark({
+          class: "text-gray-400 font-semibold",
+        }).range(expression.from, expression.to)
+      );
+      decorations.push(
+        Decoration.widget({
+          widget: new ExpressionResultWidget(expression.value),
+          side: 1,
+        }).range(expression.to)
+      );
+    }
+  }
+
+  return decorations.concat(node.children.flatMap(getDecorationsOfNode));
+}
+
 function App() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const editorViewRef = useRef<EditorView>();
 
-  const [parsedNodes, setParsedNodes] = useState<OutlineNode[]>([]);
+  const [rootNodes, setRootNodes] = useState<OutlineNode[]>([]);
   const [focusedNode, setFocusedNode] = useState<OutlineNode>();
 
   useEffect(() => {
-    const rootNode = parsedNodes[0];
-
-    if (!rootNode) {
+    const currentEditorView = editorViewRef.current;
+    if (!currentEditorView) {
       return;
     }
 
-    evalFormulas(rootNode);
+    for (const rootNode of rootNodes) {
+      evalFormulas(rootNode);
+    }
 
-    console.log(JSON.stringify(rootNode, null, 2));
-  }, [parsedNodes]);
+    currentEditorView.dispatch({ effects: setRootNodesEffect.of(rootNodes) });
+  }, [rootNodes]);
 
   const onChangeDoc = useStaticCallback((state: EditorState) => {
     const currentEditorView = editorViewRef.current;
@@ -54,7 +133,7 @@ function App() {
     }
 
     const nodes = parseOutlineTree(state);
-    setParsedNodes(nodes);
+    setRootNodes(nodes);
     currentEditorView.dispatch({
       effects: setOutlineTree.of(nodes),
     });
@@ -90,6 +169,8 @@ function App() {
         outlineTreeField,
         markdown(),
         keymap.of([indentWithTab]),
+        rootNodesField,
+        outlineNodeDecorations,
       ],
       dispatch(transaction: Transaction) {
         view.update([transaction]);
@@ -117,7 +198,6 @@ function App() {
     <div className="flex p-4 gap-2 h-screen">
       <div className="w-full">
         <div ref={containerRef}></div>
-        {focusedNode && <div>{focusedNode.value}</div>}
       </div>
     </div>
   );
@@ -129,7 +209,6 @@ function evalFormulas(node: OutlineNode) {
       try {
         expression.value = eval(expression.source).toString();
       } catch (err: unknown) {
-        console.log("failed");
         expression.value = err.toString();
       }
     }

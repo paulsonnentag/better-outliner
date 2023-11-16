@@ -125,7 +125,7 @@ interface Bullet {
   expressions: Expression[];
 }
 
-interface Expression {
+export interface Expression {
   from: number;
   to: number;
   source: string;
