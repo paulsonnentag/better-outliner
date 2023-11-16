@@ -13,12 +13,19 @@ import {
 } from "./plugins/outlineTree";
 import { markdown } from "@codemirror/lang-markdown";
 
+/*
 const initialSource = `- Distance
   - Aachen:
     - position: 50.7753, 6.0839
   - Washington:
     - position: 38.9072, 77.0369
   - {distance(lookup("Washington"), lookup("Aachen"))}
+`; */
+
+const initialSource = `- Formulas
+  - {Math.random()}
+  - {1 + 2}
+  - {invalid}
 `;
 
 function App() {
@@ -35,7 +42,9 @@ function App() {
       return;
     }
 
-    console.log(rootNode);
+    evalFormulas(rootNode);
+
+    console.log(JSON.stringify(rootNode, null, 2));
   }, [parsedNodes]);
 
   const onChangeDoc = useStaticCallback((state: EditorState) => {
@@ -112,6 +121,21 @@ function App() {
       </div>
     </div>
   );
+}
+
+function evalFormulas(node: OutlineNode) {
+  if (node.expressions) {
+    for (const expression of node.expressions) {
+      try {
+        expression.value = eval(expression.source).toString();
+      } catch (err: unknown) {
+        console.log("failed");
+        expression.value = err.toString();
+      }
+    }
+  }
+
+  node.children.forEach(evalFormulas);
 }
 
 export default App;

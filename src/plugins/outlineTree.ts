@@ -129,6 +129,7 @@ interface Expression {
   from: number;
   to: number;
   source: string;
+  value?: string;
 }
 
 const KEY_REGEX = /(^[^{]*?):/;
