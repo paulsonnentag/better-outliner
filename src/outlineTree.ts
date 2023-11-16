@@ -17,12 +17,17 @@ export const outlineTreeField = StateField.define<OutlineNode[]>({
 });
 
 export interface OutlineNode {
-  from: number;
-  to: number;
   key?: string;
   value: string;
   expressions: Expression[];
   children: OutlineNode[];
+  parent?: OutlineNode;
+
+  from: number;
+  to: number;
+  indentation: number;
+
+  data: Record<string, any>; // store arbitrary data
 }
 
 // todo: doesn't work if there are multiple separate lists in the document
@@ -42,9 +47,11 @@ export function parseOutlineTree(state: EditorState): OutlineNode[] {
             parents.unshift({
               value: "",
               expressions: [],
+              indentation: 0,
               from: node.from,
               to: node.to,
               children: [],
+              data: {},
             });
           }
           break;
@@ -65,13 +72,17 @@ export function parseOutlineTree(state: EditorState): OutlineNode[] {
             node.from + 2
           );
 
+          const from = state.doc.lineAt(node.from).from;
           currentNode = {
-            from: state.doc.lineAt(node.from).from, // use the start position of the line
+            from, // use the start position of the line
+            indentation: node.from - from,
             to: node.to,
             key,
             value,
             children: [],
             expressions,
+            parent,
+            data: {},
           };
 
           if (parent) {

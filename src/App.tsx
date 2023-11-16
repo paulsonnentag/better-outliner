@@ -23,7 +23,7 @@ import {
   outlineTreeField,
   parseOutlineTree,
   setOutlineTree,
-} from "./plugins/outlineTree";
+} from "./outlineTree";
 import { markdown } from "@codemirror/lang-markdown";
 
 /*
@@ -36,9 +36,12 @@ const initialSource = `- Distance
 `; */
 
 const initialSource = `- Formulas
+  - bob: 
+    - age: 10
+  - a: 20
   - {Math.random()}
   - {1 + 2}
-  - {invalid}
+  - {lookup("bob.age")}
 `;
 
 class ExpressionResultWidget extends WidgetType {
@@ -87,13 +90,24 @@ const outlineNodeDecorations = EditorView.decorations.compute(
 function getDecorationsOfNode(node: OutlineNode): Range<Decoration>[] {
   const decorations: Range<Decoration>[] = [];
 
+  if (node.key) {
+    const from = node.from + node.indentation;
+
+    decorations.push(
+      Decoration.mark({
+        class: "text-gray-500",
+      }).range(from, from + node.key.length + 4)
+    );
+  }
+
   for (const expression of node.expressions) {
+    decorations.push(
+      Decoration.mark({
+        class: "text-gray-500",
+      }).range(expression.from, expression.to)
+    );
+
     if (expression.value) {
-      decorations.push(
-        Decoration.mark({
-          class: "text-gray-400 font-semibold",
-        }).range(expression.from, expression.to)
-      );
       decorations.push(
         Decoration.widget({
           widget: new ExpressionResultWidget(expression.value),
@@ -120,7 +134,7 @@ function App() {
     }
 
     for (const rootNode of rootNodes) {
-      evalFormulas(rootNode);
+      evalOutline(rootNode);
     }
 
     currentEditorView.dispatch({ effects: setRootNodesEffect.of(rootNodes) });
@@ -203,18 +217,85 @@ function App() {
   );
 }
 
+function evalOutline(rootNode: OutlineNode) {
+  addAttributes(rootNode);
+  evalFormulas(rootNode);
+}
+
+function addAttributes(node: OutlineNode) {
+  const attrs: Record<string, OutlineNode> = (node.data.attrs = {});
+
+  for (const child of node.children) {
+    if (child.key) {
+      attrs[child.key] = child;
+    }
+
+    addAttributes(child);
+  }
+}
+
 function evalFormulas(node: OutlineNode) {
   if (node.expressions) {
     for (const expression of node.expressions) {
       try {
-        expression.value = eval(expression.source).toString();
+        const fn = new Function(
+          "FUNCTIONS",
+          "node",
+          `       
+          const BOUND_FUNCTIONS = {}
+          for (const [name, fn] of Object.entries(FUNCTIONS)) {
+            BOUND_FUNCTIONS[name] = fn.bind(node)
+          }
+
+          with (BOUND_FUNCTIONS) {
+            return ${expression.source}
+          }
+        `
+        );
+
+        expression.value = fn(FUNCTIONS, node);
       } catch (err: unknown) {
-        expression.value = err.toString();
+        expression;
       }
     }
   }
 
   node.children.forEach(evalFormulas);
 }
+
+const FUNCTIONS = {
+  lookup(path: string) {
+    let current: any = this;
+
+    const parts = path.split(".");
+    for (const key of parts) {
+      // check own attribute
+      let value = current.data.attrs[key];
+
+      // check parent
+      if (!value) {
+        do {
+          current = current.parent;
+          value = current.data.attrs[key];
+        } while (!value && current.parent);
+      }
+
+      if (value) {
+        current = value;
+      } else {
+        return;
+      }
+    }
+
+    if (current) {
+      if (current.expressions.length !== 0) {
+        return current.expressions[0].value;
+      }
+
+      const number = parseFloat(current.value);
+      return isNaN(number) ? current.value : number;
+    }
+  },
+};
 
 export default App;
