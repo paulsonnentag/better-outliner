@@ -30,6 +30,14 @@ export interface OutlineNode {
   data: Record<string, any>; // store arbitrary data
 }
 
+export interface Expression {
+  from: number;
+  to: number;
+  source: string;
+  value?: string;
+  css?: string; // add custom css class that will be applied to the expression
+}
+
 // todo: doesn't work if there are multiple separate lists in the document
 export function parseOutlineTree(state: EditorState): OutlineNode[] {
   const parents: OutlineNode[] = [];
@@ -73,6 +81,9 @@ export function parseOutlineTree(state: EditorState): OutlineNode[] {
           );
 
           const from = state.doc.lineAt(node.from).from;
+
+          console.log(bulletSource, node.from - from);
+
           currentNode = {
             from, // use the start position of the line
             indentation: node.from - from,
@@ -136,13 +147,6 @@ interface Bullet {
   expressions: Expression[];
 }
 
-export interface Expression {
-  from: number;
-  to: number;
-  source: string;
-  value?: string;
-}
-
 const KEY_REGEX = /(^[^{]*?):/;
 
 function parseBullet(value: string, offset: number): Bullet {
@@ -154,7 +158,7 @@ function parseBullet(value: string, offset: number): Bullet {
     return {
       key: key.trim(),
       value: value.slice(key.length + 1).trim(),
-      expressions: parseExpressions(value, key.length + 1 + offset),
+      expressions: parseExpressions(value, offset),
     };
   }
 

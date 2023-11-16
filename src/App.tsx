@@ -38,10 +38,12 @@ const initialSource = `- Distance
 const initialSource = `- Formulas
   - bob: 
     - age: 10
+    - next: {lookup("age") + 1}
   - a: 20
   - {Math.random()}
   - {1 + 2}
-  - {lookup("bob.age")}
+  - {lookup("bob.next")}
+  - {invalid}
 `;
 
 class ExpressionResultWidget extends WidgetType {
@@ -83,7 +85,9 @@ const outlineNodeDecorations = EditorView.decorations.compute(
   (state) => {
     const rootNodes = state.field(rootNodesField);
 
-    return Decoration.set(rootNodes.flatMap(getDecorationsOfNode));
+    return Decoration.set(
+      rootNodes.flatMap(getDecorationsOfNode).sort((a, b) => a.from - b.from)
+    );
   }
 );
 
@@ -103,7 +107,7 @@ function getDecorationsOfNode(node: OutlineNode): Range<Decoration>[] {
   for (const expression of node.expressions) {
     decorations.push(
       Decoration.mark({
-        class: "text-gray-500",
+        class: expression.css ?? "text-gray-500",
       }).range(expression.from, expression.to)
     );
 
@@ -255,7 +259,7 @@ function evalFormulas(node: OutlineNode) {
 
         expression.value = fn(FUNCTIONS, node);
       } catch (err: unknown) {
-        expression;
+        expression.css = "text-red-500";
       }
     }
   }
